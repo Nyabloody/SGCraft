@@ -8,15 +8,18 @@ package gcewing.sg;
 
 import java.util.*;
 
+import gcewing.sg.util.Info;
 import net.minecraft.block.*;
 import net.minecraft.block.material.*;
 import net.minecraft.block.properties.*;
 import net.minecraft.block.state.*;
 import net.minecraft.client.particle.*;
 import net.minecraft.entity.*;
-import net.minecraft.entity.player.EntityPlayer;
+import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.inventory.*;
 import net.minecraft.item.*;
+import net.minecraft.state.Property;
+import net.minecraft.state.StateContainer;
 import net.minecraft.tileentity.*;
 import net.minecraft.util.*;
 import net.minecraft.util.math.*;
@@ -24,25 +27,38 @@ import net.minecraft.world.*;
 
 import net.minecraftforge.fml.common.registry.*;
 import net.minecraftforge.fml.relauncher.*;
+import net.minecraftforge.registries.DeferredRegister;
+import net.minecraftforge.registries.ForgeRegistries;
+
+import javax.annotation.Nullable;
 
 import static gcewing.sg.BaseMod.*;
 import static gcewing.sg.BaseModClient.*;
 
 public class BaseBlock<TE extends TileEntity>
-    extends BlockContainer implements BaseMod.IBlock
+    extends ContainerBlock implements BaseMod.IBlock
 {
 
     public static boolean debugState = false;
+    private static final DeferredRegister<Item> ITEMS = DeferredRegister.create(ForgeRegistries.ITEMS, Info.modID);
+    private static final DeferredRegister<Block> BLOCKS = DeferredRegister.create(ForgeRegistries.BLOCKS, Info.modID);
+    private static final DeferredRegister<TileEntityType<?>> TILES = DeferredRegister.create(ForgeRegistries.TILE_ENTITIES, Info.modID);
+
+    @Nullable
+    @Override
+    public TileEntity createNewTileEntity(IBlockReader worldIn) {
+        return new BaseTileInventory();
+    }
 
     // --------------------------- Orientation -------------------------------
 
     public interface IOrientationHandler {
-    
+
         void defineProperties(BaseBlock block);
-        IBlockState onBlockPlaced(Block block, World world, BlockPos pos, EnumFacing side, 
-            float hitX, float hitY, float hitZ, IBlockState baseState, EntityLivingBase placer);
+        BlockState onBlockPlaced(Block block, World world, BlockPos pos, Direction side,
+            float hitX, float hitY, float hitZ, BlockState baseState, LivingEntity placer);
         //Trans3 localToGlobalTransformation(IBlockAccess world, BlockPos pos, IBlockState state);
-        Trans3 localToGlobalTransformation(IBlockAccess world, BlockPos pos, IBlockState state, Vector3 origin);
+        Trans3 localToGlobalTransformation(IBlockReader world, BlockPos pos, BlockState state, Vector3 origin);
     }
     
     public static class Orient1Way implements IOrientationHandler {
@@ -50,13 +66,13 @@ public class BaseBlock<TE extends TileEntity>
         public void defineProperties(BaseBlock block) {
         }
         
-        public IBlockState onBlockPlaced(Block block, World world, BlockPos pos, EnumFacing side, 
-            float hitX, float hitY, float hitZ, IBlockState baseState, EntityLivingBase placer)
+        public BlockState onBlockPlaced(Block block, World world, BlockPos pos, Direction side,
+            float hitX, float hitY, float hitZ, BlockState baseState, LivingEntity placer)
         {
             return baseState;
         }
         
-        public Trans3 localToGlobalTransformation(IBlockAccess world, BlockPos pos, IBlockState state, Vector3 origin) {
+        public Trans3 localToGlobalTransformation(IBlockReader world, BlockPos pos, BlockState state, Vector3 origin) {
             return new Trans3(origin);
         }
     
@@ -66,11 +82,11 @@ public class BaseBlock<TE extends TileEntity>
 
     // --------------------------- Members -------------------------------
 
-    protected MapColor mapColor;
-    protected IProperty[] properties;
+    protected MaterialColor mapColor;
+    protected Property[] properties;
     protected Object[][] propertyValues;
     protected int numProperties; // Do not explicitly initialise
-    protected EnumBlockRenderType renderID = EnumBlockRenderType.MODEL;
+    protected BlockRenderType renderID = BlockRenderType.MODEL;
     protected Class<? extends TileEntity> tileEntityClass = null;
     protected IOrientationHandler orientationHandler = orient1Way;
     protected String[] textureNames;
@@ -101,7 +117,7 @@ public class BaseBlock<TE extends TileEntity>
     }
 
     public BaseBlock(Material material, IOrientationHandler orient, Class<TE> teClass, String teID) {
-        super(material);
+        super(Properties.create(material));
         if (orient == null)
             orient = orient1Way;
         this.orientationHandler = orient;
@@ -135,16 +151,7 @@ public class BaseBlock<TE extends TileEntity>
         // End TE World Fixer.
 
         tileEntityClass = teClass;
-        if (teClass != null) {
-            if (teID == null)
-                teID = teClass.getName();
-            try {
-                GameRegistry.registerTileEntity(teClass, teID);
-            }
-            catch (IllegalArgumentException e) {
-                // Ignore redundant registration
-            }
-        }
+        // TODO: Register from main mod using new Forge methods. Probably has to be done individually :/
     }
 
     // --------------------------- States -------------------------------
@@ -154,12 +161,12 @@ public class BaseBlock<TE extends TileEntity>
     }
     
     protected void defineProperties() {
-        properties = new IProperty[4];
+        properties = new Property[4];
         propertyValues = new Object[4][];
         getOrientationHandler().defineProperties(this);
     }
     
-    protected void addProperty(IProperty property) {
+    protected void addProperty(Property property) {
         if (debugState)
             System.out.printf("BaseBlock.addProperty: %s to %s\n", property, getClass().getName());
         if (numProperties < 4) {
@@ -174,20 +181,6 @@ public class BaseBlock<TE extends TileEntity>
         if (debugState)
             System.out.printf("BaseBlock.addProperty: %s now has %s properties\n",
                 getClass().getName(), numProperties);
-    }
-    
-    @Override
-    protected BlockStateContainer createBlockState() {
-        if (debugState)
-            System.out.printf("BaseBlock.createBlockState: Defining properties\n");
-        defineProperties();
-        if (debugState)
-            dumpProperties();
-        checkProperties();
-        IProperty[] props = Arrays.copyOf(properties, numProperties);
-        if (debugState)
-            System.out.printf("BaseBlock.createBlockState: Creating BlockState with %s properties\n", props.length);
-        return new BlockStateContainer(this, props);
     }
     
     private void dumpProperties() {
@@ -209,91 +202,30 @@ public class BaseBlock<TE extends TileEntity>
                 "Block %s has %s combinations of property values (16 allowed)",
                 getClass().getName(), n));
     }
-    
-    @Override
-    public int getMetaFromState(IBlockState state) {
-        int meta = 0;
-        for (int i = numProperties - 1; i >= 0; i--) {
-            Object value = state.getValue(properties[i]);
-            Object[] values = propertyValues[i];
-            int k = values.length - 1;
-            while (k > 0 && !values[k].equals(value))
-                --k;
-            if (debugState)
-                System.out.printf("BaseBlock.getMetaFromState: property %s value %s --> %s of %s\n",
-                    i, value, k, values.length);
-            meta = meta * values.length + k;
-        }
-        if (debugState)
-            System.out.printf("BaseBlock.getMetaFromState: %s --> %s\n", state, meta);
-        return meta & 15; // To be on the safe side
-    }
-    
-    @Override
-    public IBlockState getStateFromMeta(int meta) {
-        IBlockState state = getDefaultState();
-        int m = meta;
-        for (int i = numProperties - 1; i >= 0; i--) {
-            Object[] values = propertyValues[i];
-            int n = values.length;
-            int k = m % n;
-            m /= n;
-            state = state.withProperty(properties[i], (Comparable)values[k]);
-        }
-        if (debugState)
-            System.out.printf("BaseBlock.getStateFromMeta: %s --> %s\n", meta, state);
-        return state;
-    }
-
-//  @Override
-//  public IBlockState getExtendedState(IBlockState state, IBlockAccess world, BlockPos pos) {
-//      return new BaseBlockState(state, world, pos);
-//  }
 
     // -------------------------- Subtypes ------------------------------
     
     public int getNumSubtypes() {
         return 1;
     }
-    
+
     // -------------------------- Harvesting ----------------------------
     
     protected ThreadLocal<TileEntity> harvestingTileEntity = new ThreadLocal();
     
 	@Override
-	public void harvestBlock(World world, EntityPlayer player, BlockPos pos, IBlockState state, TileEntity te, ItemStack stack) {
+	public void harvestBlock(World world, PlayerEntity player, BlockPos pos, BlockState state, TileEntity te, ItemStack stack) {
         harvestingTileEntity.set(te);
         super.harvestBlock(world, player, pos, state, te, stack);
         harvestingTileEntity.set(null);
     }
-
-	@Override
-    public List<ItemStack> getDrops(IBlockAccess world, BlockPos pos, IBlockState state, int fortune) {
-        TileEntity te = world.getTileEntity(pos);
-        if (te == null)
-            te = harvestingTileEntity.get();
-        return getDropsFromTileEntity(world, pos, state, te, fortune);
-    }
-    
-	protected List<ItemStack> getDropsFromTileEntity(IBlockAccess world, BlockPos pos, IBlockState state, TileEntity te, int fortune) {
-        return super.getDrops(world, pos, state, fortune);
-    }	    
     
     // -------------------------- Rendering -----------------------------
-
     @Override
-    public EnumBlockRenderType getRenderType(IBlockState state) {
-        return renderID;
+    public String getQualifiedRendererClassName() { // TODO: There's no way this works, figure out what's supposed to happen here
+         return getRendererClassName();
     }
-    
-    public String getQualifiedRendererClassName() {
-        String name = getRendererClassName();
-        if (name != null) {
-            //name = getClass().getPackage().getName() + "." + name;
-        }
-        return name;
-    }
-    
+
     protected String getRendererClassName() {
         return null;
     }
@@ -311,28 +243,28 @@ public class BaseBlock<TE extends TileEntity>
     public String[] getTextureNames() {
         return textureNames;
     }
-    
-    public ModelSpec getModelSpec(IBlockState state) {
+
+    public ModelSpec getModelSpec(BlockState state) {
         return modelSpec;
     }
     
-    public Trans3 localToGlobalRotation(IBlockAccess world, BlockPos pos) {
+    public Trans3 localToGlobalRotation(Blockreader world, BlockPos pos) {
         return localToGlobalRotation(world, pos, world.getBlockState(pos));
     }
     
-    public Trans3 localToGlobalRotation(IBlockAccess world, BlockPos pos, IBlockState state) {
+    public Trans3 localToGlobalRotation(Blockreader world, BlockPos pos, BlockState state) {
         return localToGlobalTransformation(world, pos, state, Vector3.zero);
     }
     
-    public Trans3 localToGlobalTransformation(IBlockAccess world, BlockPos pos) {
+    public Trans3 localToGlobalTransformation(Blockreader world, BlockPos pos) {
         return localToGlobalTransformation(world, pos, world.getBlockState(pos));
     }
     
-    public Trans3 localToGlobalTransformation(IBlockAccess world, BlockPos pos, IBlockState state) {
+    public Trans3 localToGlobalTransformation(Blockreader world, BlockPos pos, BlockState state) {
         return localToGlobalTransformation(world, pos, state, Vector3.blockCenter(pos));
     }
     
-    public Trans3 localToGlobalTransformation(IBlockAccess world, BlockPos pos, IBlockState state, Vector3 origin) {
+    public Trans3 localToGlobalTransformation(Blockreader world, BlockPos pos, BlockState state, Vector3 origin) {
         IOrientationHandler oh = getOrientationHandler();
         return oh.localToGlobalTransformation(world, pos, state, origin);
     }
@@ -344,18 +276,18 @@ public class BaseBlock<TE extends TileEntity>
     // -------------------------- Tile Entity -----------------------------
     
     @Override
-    public boolean hasTileEntity(IBlockState state) {
+    public boolean hasTileEntity(BlockState state) {
         return tileEntityClass != null;
     }
     
-    public TE getTileEntity(IBlockAccess world, BlockPos pos) {
-        if (hasTileEntity())
+    public TE getTileEntity(Blockreader world, BlockPos pos) {
+        if (hasTileEntity(world.getBlockState(pos)))
             return (TE)world.getTileEntity(pos);
         else
             return null;
     }
     
-    @Override
+    @Override // TODO: Something is wrong here
     public TileEntity createNewTileEntity(World world, int meta) {
         if (tileEntityClass != null) {
             try {
@@ -371,16 +303,16 @@ public class BaseBlock<TE extends TileEntity>
     
     // -------------------------------------------------------------------
 
-    @Override
-    public IBlockState getStateForPlacement(World world, BlockPos pos, EnumFacing side, float hitX, float hitY, float hitZ, int meta, EntityLivingBase placer)    
+    @Override // TODO: Another override fix
+    public BlockState getStateForPlacement(World world, BlockPos pos, Direction side, float hitX, float hitY, float hitZ, int meta, LivingEntity placer)
     {
-        IBlockState state = getOrientationHandler().onBlockPlaced(this, world, pos, side,
-            hitX, hitY, hitZ, getStateFromMeta(meta), placer);
-        return state;
+        return getOrientationHandler().onBlockPlaced(this, world, pos, side, hitX, hitY, hitZ, getDefaultState(), placer);
     }
 
-    @Override
-    public void onBlockAdded(World world, BlockPos pos, IBlockState state) {
+    // TODO: Do we need any of these?
+    /*@Override
+    public void onBlockAdded(World world, BlockPos pos, BlockState state) {
+	    super.onBlockPlacedBy(world, pos, state, null, );
         super.onBlockAdded(world, pos, state);
         if (hasTileEntity(state)) {
             TileEntity te = getTileEntity(world, pos);
@@ -388,6 +320,7 @@ public class BaseBlock<TE extends TileEntity>
                 ((BaseMod.ITileEntity)te).onAddedToWorld();
         }
     }
+
 
     @Override
     public void breakBlock(World world, BlockPos pos, IBlockState state) {
@@ -455,10 +388,10 @@ public class BaseBlock<TE extends TileEntity>
             }
         }
         return true;
-    }
+    }*/
     
-    public IBlockState getParticleState(IBlockAccess world, BlockPos pos) {
-        IBlockState state = world.getBlockState(pos);
+    public BlockState getParticleState(Blockreader world, BlockPos pos) {
+        BlockState state = world.getBlockState(pos);
         return getActualState(state, world, pos);
     }
     

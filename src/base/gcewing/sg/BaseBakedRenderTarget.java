@@ -6,13 +6,17 @@
 
 package gcewing.sg;
 
+import com.google.common.collect.ImmutableList;
 import net.minecraft.client.renderer.block.model.*;
+import net.minecraft.client.renderer.model.*;
 import net.minecraft.client.renderer.texture.TextureAtlasSprite;
 import net.minecraft.client.renderer.vertex.VertexFormat;
 import net.minecraft.client.renderer.vertex.VertexFormatElement;
-import net.minecraft.util.EnumFacing;
+//import net.minecraft.util.EnumFacing;
+import net.minecraft.state.properties.BlockStateProperties;
+import net.minecraft.util.Direction;
 import net.minecraft.util.math.BlockPos;
-import org.lwjgl.util.vector.Vector3f;
+import net.minecraft.util.math.vector.Vector3f;
 
 import java.nio.ByteBuffer;
 import java.nio.IntBuffer;
@@ -30,19 +34,12 @@ public class BaseBakedRenderTarget extends BaseRenderTarget {
     // It seems to be necessary to put the padding byte *before* the
     // normal bytes, even though DefaultVertexFormats.ITEM says it
     // should be after.
-    protected static VertexFormat theFormat = new VertexFormat();
-    static {
-        theFormat.addElement(POSITION_3F);
-        theFormat.addElement(COLOR_4UB);
-        theFormat.addElement(TEX_2F);
-        theFormat.addElement(PADDING_1B);
-        theFormat.addElement(NORMAL_3B);
-    }
+    protected static VertexFormat theFormat = new VertexFormat(ImmutableList.of(POSITION_3F, COLOR_4UB, TEX_2F, PADDING_1B, NORMAL_3B));
 
     protected static List<BakedQuad> emptyQuads = new ArrayList<BakedQuad>();
-    protected static Map<EnumFacing, List<BakedQuad>> faceQuads = new HashMap<>();
+    protected static Map<Direction, List<BakedQuad>> faceQuads = new HashMap<>();
     static {
-       for (EnumFacing face : EnumFacing.VALUES)
+       for (Direction face : Direction.values())
            faceQuads.put(face, emptyQuads);
     }
 
@@ -102,7 +99,7 @@ public class BaseBakedRenderTarget extends BaseRenderTarget {
         //quads.add(new BakedQuad(data, 0, normal.facing()));
         //System.out.printf("BaseBakedRenderTarget.endFace: Adding quad facing %s\n", face);
         //quads.add(new BakedQuad(data, 0, face));
-        quads.add(new BakedQuad(data, 0, EnumFacing.UP, null)); //FIXME I don't think there should be a null here    }
+        quads.add(new BakedQuad(data, 0, Direction.UP, null, true)); //FIXME I don't think there should be a null here    }
     }
     
 //  protected void dumpVertexData(int[] data, int n) {
@@ -192,7 +189,7 @@ public class BaseBakedRenderTarget extends BaseRenderTarget {
         //  Tessellator.getInstance().getWorldRenderer().getVertexFormat());
         if (verticesPerFace != 0)
             throw new IllegalStateException("Rendering ended with incomplete face");
-        return new SimpleBakedModel(quads, faceQuads, false, true, particleTexture, transforms, ItemOverrideList.NONE);
+        return new SimpleBakedModel(quads, faceQuads, false, true, false, particleTexture, transforms, ItemOverrideList.EMPTY);
     }
     
     @Override

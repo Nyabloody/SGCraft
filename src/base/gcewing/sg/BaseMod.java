@@ -13,6 +13,7 @@ import gcewing.sg.BaseModClient.IModel;
 import gcewing.sg.block.SGRingBlock;
 import gcewing.sg.item.SGRingItem;
 import net.minecraft.block.Block;
+import net.minecraft.block.BlockState;
 import net.minecraft.block.state.IBlockState;
 import net.minecraft.creativetab.CreativeTabs;
 import net.minecraft.entity.Entity;
@@ -30,6 +31,7 @@ import net.minecraft.tileentity.TileEntity;
 import net.minecraft.util.ResourceLocation;
 import net.minecraft.util.SoundEvent;
 import net.minecraft.util.math.BlockPos;
+import net.minecraft.world.Blockreader;
 import net.minecraft.world.IBlockAccess;
 import net.minecraft.world.World;
 import net.minecraft.world.WorldServer;
@@ -78,10 +80,10 @@ public class BaseMod<CLIENT extends BaseModClient<? extends BaseMod>>
     
     interface IBlock extends ITextureConsumer {
         String getQualifiedRendererClassName();
-        ModelSpec getModelSpec(IBlockState state);
+        ModelSpec getModelSpec(BlockState state);
         int getNumSubtypes();
-        Trans3 localToGlobalTransformation(IBlockAccess world, BlockPos pos, IBlockState state, Vector3 origin);
-        IBlockState getParticleState(IBlockAccess world, BlockPos pos);
+        Trans3 localToGlobalTransformation(Blockreader world, BlockPos pos, BlockState state, Vector3 origin);
+        BlockState getParticleState(Blockreader world, BlockPos pos);
         Trans3 itemTransformation();
     }
     
